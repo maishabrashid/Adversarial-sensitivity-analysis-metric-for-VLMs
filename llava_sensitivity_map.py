@@ -13,7 +13,7 @@ import gc
 # Config
 # ----------------------------
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
-NUM_SAMPLES = 10
+NUM_SAMPLES = 5000
 IMAGE_RESIZE = 224 
 COCO_ANN_FILE = "/data/rashidm/COCO/annotations/captions_val2017.json"
 IMAGES_DIR = "/data/rashidm/COCO/val2017"
@@ -64,6 +64,7 @@ random.shuffle(img_ids)
 selected_ids = img_ids[:NUM_SAMPLES]
 
 print(f"Generating White-Green sensitivity maps for {NUM_SAMPLES} samples...")
+sensitivity_scores = []
 
 for i, img_id in enumerate(selected_ids):
     info = coco.loadImgs(img_id)[0]
@@ -75,6 +76,12 @@ for i, img_id in enumerate(selected_ids):
         pixel_values = inputs["pixel_values"].to(device)
 
         frob_score, contribution_map = get_sensitivity_data(pixel_values)
+        # print(
+        #     f"[{i+1}/{NUM_SAMPLES}] "
+        #     f"Image ID {img_id} | "
+        #     f"Sensitivity Score (Frobenius Norm): {frob_score:.6f}"
+        # )
+        sensitivity_scores.append(frob_score)
         
         # Log-scale normalization
         viz_map = np.log1p(contribution_map)
@@ -94,11 +101,11 @@ for i, img_id in enumerate(selected_ids):
         axes[1].set_title(f"Sensitivity Map\nFrobenius Norm: {frob_score:.4f}")
         axes[1].axis("off")
         
-        plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04, label='Sensitivity (Green = High)')
+        # plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04, label='Sensitivity (Green = High)')
         
-        plt.tight_layout()
-        plt.savefig(f"{OUTPUT_DIR}/green_map_{img_id}.png")
-        plt.close()
+        # plt.tight_layout()
+        # plt.savefig(f"{OUTPUT_DIR}/green_map_{img_id}.png")
+        # plt.close()
         
         print(f"[{i+1}/{NUM_SAMPLES}] ID {img_id} | Saved.")
 
@@ -108,5 +115,16 @@ for i, img_id in enumerate(selected_ids):
 
     except Exception as e:
         print(f"Failed on {img_id}: {e}")
+
+if len(sensitivity_scores) > 0:
+    avg_sensitivity = float(np.mean(sensitivity_scores))
+    std_sensitivity = float(np.std(sensitivity_scores))
+    print("\n--- Sensitivity Summary ---")
+    print(f"Number of samples: {len(sensitivity_scores)}")
+    print(f"Average Sensitivity (Frobenius Norm): {avg_sensitivity:.6f}")
+    print(f"Std Dev Sensitivity: {std_sensitivity:.6f}")
+else:
+    print("No sensitivity scores were collected.")
+
 
 print(f"\nCompleted! Check the '{OUTPUT_DIR}' folder.")
