@@ -13,7 +13,7 @@ import gc
 # Config
 # ----------------------------
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
-NUM_SAMPLES = 5000
+NUM_SAMPLES = 1200
 IMAGE_RESIZE = 224 
 COCO_ANN_FILE = "/data/rashidm/COCO/annotations/captions_val2017.json"
 IMAGES_DIR = "/data/rashidm/COCO/val2017"
