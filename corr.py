@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 
 #vulnerability_scores = [20.94, 20.94, 20.93, 20.94, 20.94]
 #sensitivity_scores = [1.65, 1.65, 1.65, 1.65, 1.65]
+
+#scores for PGD vs Vulnerabilty score
 vulnerability_scores = [14.47,11.25, 12.86,17.7]
 sensitivity_scores = [0.0241, 0.0242, 0.0220, 0.0341]
 
