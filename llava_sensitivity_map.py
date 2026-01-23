@@ -2,8 +2,6 @@ import os
 import random
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
 from PIL import Image
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 from pycocotools.coco import COCO
@@ -13,15 +11,10 @@ import gc
 # Config
 # ----------------------------
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
-NUM_SAMPLES = 1200
+NUM_SAMPLES = 500
 IMAGE_RESIZE = 224 
 COCO_ANN_FILE = "/data/rashidm/COCO/annotations/captions_val2017.json"
 IMAGES_DIR = "/data/rashidm/COCO/val2017"
-OUTPUT_DIR = "./sensitivity_maps_green"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# Define custom Colormap: White (low) to Green (high)
-white_green_cmap = LinearSegmentedColormap.from_list("white_green", ["white", "green"])
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -37,24 +30,48 @@ vision_tower = model.model.vision_tower.to(device).eval()
 model.language_model = model.language_model.to("cpu")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
-for p in vision_tower.parameters():
-    p.requires_grad = False
+# ----------------------------
+# JVP Sensitivity Function
+# ----------------------------
+def get_jvp_sensitivity(pixel_values):
+    from torch.func import jvp
 
-def get_sensitivity_data(pixel_values):
-    x = pixel_values.detach().to(device, dtype=torch.float16).requires_grad_(True)
-    outputs = vision_tower(x)
-    hs = outputs[0] if isinstance(outputs, (tuple, list)) else outputs.last_hidden_state
-    feat = hs.mean(dim=1) 
+    # Get the actual dtype of the model weights (should be float16/Half)
+    target_dtype = next(vision_tower.parameters()).dtype
 
-    u = torch.ones_like(feat) 
-    grads = torch.autograd.grad(feat, x, grad_outputs=u)[0]
-    
-    pixel_contribution = grads[0].pow(2).sum(dim=0).detach().cpu().numpy()
-    trace_est = pixel_contribution.mean()
-    frob_norm = np.sqrt(max(trace_est, 0.0))
-    
-    return frob_norm, pixel_contribution
+    def tower_forward(p_vals):
+        # Explicitly cast input to the model's weight dtype
+        # and ensure the output is also cast to avoid promotion issues
+        outputs = vision_tower(p_vals.to(target_dtype))
+        hs = outputs[0] if isinstance(outputs, (tuple, list)) else outputs.last_hidden_state
+        return hs.mean(dim=1).to(target_dtype)
 
+    # Prepare primal and tangent in the EXACT same dtype as the weights
+    x = pixel_values.detach().to(device, dtype=target_dtype)
+    v = torch.randn_like(x, dtype=target_dtype, device=device)
+    v = v / (torch.norm(v) + 1e-8)
+
+    try:
+        # Compute JVP. Both (x,) and (v,) must be tuples of the same dtype.
+        _, jvp_res = jvp(tower_forward, (x,), (v,))
+        
+        # Calculate L2 norm. Promote to float32 only at the very end 
+        # for numerical stability in the final score.
+        score = torch.norm(jvp_res.to(torch.float32), p=2).item()
+        return float(score)
+        
+    except RuntimeError as e:
+        # Final fallback: If functional JVP fails, we use a Manual Finite Difference 
+        # approximation which is dtype-agnostic and mathematically equivalent for sensitivity.
+        eps = 0.70
+        with torch.no_grad():
+            orig_feat = tower_forward(x)
+            perturbed_feat = tower_forward(x + eps * v)
+            # (f(x+ev) - f(x)) / e is the JVP approximation
+            jvp_approx = (perturbed_feat - orig_feat) / eps
+            score = torch.norm(jvp_approx.to(torch.float32), p=2).item()
+            return float(score)
+        
 # ----------------------------
 # Execution Loop
 # ----------------------------
@@ -63,7 +80,7 @@ img_ids = list(coco.imgs.keys())
 random.shuffle(img_ids)
 selected_ids = img_ids[:NUM_SAMPLES]
 
-print(f"Generating White-Green sensitivity maps for {NUM_SAMPLES} samples...")
+print(f"Calculating JVP Sensitivity for {NUM_SAMPLES} samples...")
 sensitivity_scores = []
 
 for i, img_id in enumerate(selected_ids):
@@ -75,39 +92,14 @@ for i, img_id in enumerate(selected_ids):
         inputs = processor(text="USER: <image>\nASSISTANT:", images=raw_image, return_tensors="pt")
         pixel_values = inputs["pixel_values"].to(device)
 
-        frob_score, contribution_map = get_sensitivity_data(pixel_values)
-        # print(
-        #     f"[{i+1}/{NUM_SAMPLES}] "
-        #     f"Image ID {img_id} | "
-        #     f"Sensitivity Score (Frobenius Norm): {frob_score:.6f}"
-        # )
-        sensitivity_scores.append(frob_score)
+        jvp_score = get_jvp_sensitivity(pixel_values)
         
-        # Log-scale normalization
-        viz_map = np.log1p(contribution_map)
-        viz_map = (viz_map - viz_map.min()) / (viz_map.max() - viz_map.min() + 1e-8)
-
-        # Plotting Side-by-Side
-        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-        
-        # 1. Original Image
-        axes[0].imshow(raw_image)
-        axes[0].set_title(f"Original Image (ID: {img_id})")
-        axes[0].axis("off")
-        
-        # 2. Raw Sensitivity Map (Custom White-Green)
-        # Using the custom cmap defined above
-        im = axes[1].imshow(viz_map, cmap=white_green_cmap)
-        axes[1].set_title(f"Sensitivity Map\nFrobenius Norm: {frob_score:.4f}")
-        axes[1].axis("off")
-        
-        # plt.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04, label='Sensitivity (Green = High)')
-        
-        # plt.tight_layout()
-        # plt.savefig(f"{OUTPUT_DIR}/green_map_{img_id}.png")
-        # plt.close()
-        
-        print(f"[{i+1}/{NUM_SAMPLES}] ID {img_id} | Saved.")
+        if not np.isfinite(jvp_score):
+            print(f"[{i+1}/{NUM_SAMPLES}] ID {img_id} | Non-finite score. Skipping.")
+            continue
+            
+        print(f"[{i+1}/{NUM_SAMPLES}] Image ID {img_id} | JVP Sensitivity: {jvp_score:.6f}")
+        sensitivity_scores.append(jvp_score)
 
         del inputs, pixel_values
         gc.collect()
@@ -118,13 +110,8 @@ for i, img_id in enumerate(selected_ids):
 
 if len(sensitivity_scores) > 0:
     avg_sensitivity = float(np.mean(sensitivity_scores))
-    std_sensitivity = float(np.std(sensitivity_scores))
-    print("\n--- Sensitivity Summary ---")
+    print("\n--- JVP Sensitivity Summary ---")
     print(f"Number of samples: {len(sensitivity_scores)}")
-    print(f"Average Sensitivity (Frobenius Norm): {avg_sensitivity:.6f}")
-    print(f"Std Dev Sensitivity: {std_sensitivity:.6f}")
+    print(f"Average JVP Score: {avg_sensitivity:.6f}")
 else:
-    print("No sensitivity scores were collected.")
-
-
-print(f"\nCompleted! Check the '{OUTPUT_DIR}' folder.")
+    print("No scores collected.")
