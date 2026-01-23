@@ -18,9 +18,7 @@ IMAGES_DIR = "/data/rashidm/COCO/val2017"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ----------------------------
 # Load and Isolate
-# ----------------------------
 print(f"Loading model: {MODEL_ID}...")
 model = LlavaForConditionalGeneration.from_pretrained(
     MODEL_ID, torch_dtype=torch.float16, low_cpu_mem_usage=True, attn_implementation="sdpa"
@@ -63,7 +61,7 @@ def get_jvp_sensitivity(pixel_values):
     except RuntimeError as e:
         # Final fallback: If functional JVP fails, we use a Manual Finite Difference 
         # approximation which is dtype-agnostic and mathematically equivalent for sensitivity.
-        eps = 0.70
+        eps = 0.05
         with torch.no_grad():
             orig_feat = tower_forward(x)
             perturbed_feat = tower_forward(x + eps * v)
