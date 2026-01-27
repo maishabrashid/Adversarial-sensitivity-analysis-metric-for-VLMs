@@ -1,12 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-vulnerability_scores = [20.94, 20.94, 20.93, 20.94, 20.94]
-sensitivity_scores = [1.65, 1.65, 1.65, 1.65, 1.65]
+vulnerability_scores = [2.52, 1.2, 0.89, 0.81, 0.74, 0.67, 0.63, 0.53]
+sensitivity_scores = [0.54, 0.55, 0.54, 0.52, 0.51, 0.5, 0.5, 0.51]
 
-#scores for PGD vs Vulnerabilty score
-#vulnerability_scores = [14.47,11.25, 12.86,17.7]
-#sensitivity_scores = [0.0241, 0.0242, 0.0220, 0.0341]
+#vulnerability_scores = [0.88, 0.23, 0.18, 0.179, 0.171, 0.17, 0.16]
+#sensitivity_scores = [42.12, 41.76, 42.81, 42.45, 40.88, 38.59, 37.45]
 
 S  = np.array(sensitivity_scores, dtype=np.float64)
 VS = np.array(vulnerability_scores, dtype=np.float64)
