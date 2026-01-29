@@ -106,4 +106,3 @@ if sensitivity_scores:
     print("\n--- CLIP JVP Sensitivity Summary (Caltech-256) ---")
     print(f"Samples Evaluated: {len(sensitivity_scores)}")
     print(f"Average JVP Score: {np.mean(sensitivity_scores):.6f}")
-    print(f"Standard Deviation: {np.std(sensitivity_scores):.6f}")
