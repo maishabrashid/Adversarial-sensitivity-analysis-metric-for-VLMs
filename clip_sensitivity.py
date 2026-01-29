@@ -67,7 +67,7 @@ def get_clip_jvp_sensitivity(image_tensor):
 
     except RuntimeError as e:
         # Fallback to Finite Difference if jvp tracing fails
-        eps = 0.5
+        eps = 0.05
         with torch.no_grad():
             f_x = encode_forward(x)
             f_x_eps = encode_forward(x + eps * v)
