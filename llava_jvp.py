@@ -63,7 +63,7 @@ def get_jvp_sensitivity(pixel_values):
     except RuntimeError as e:
         # Final fallback: If functional JVP fails, we use a Manual Finite Difference 
         # approximation which is dtype-agnostic and mathematically equivalent for sensitivity.
-        eps = 0.70
+        eps = 0.005
         with torch.no_grad():
             orig_feat = tower_forward(x)
             perturbed_feat = tower_forward(x + eps * v)
